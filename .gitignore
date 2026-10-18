@@ -15,10 +15,15 @@ cat/
 dog/
 cat_crops/
 cats_only/
+dogs_only/
 black_candidates/
 contact_sheets/
 mistakes/
 recognition_dataset/
+emili_cat/
+pics_for_demo/
+pictures_not_to_upload/
+cat_and_dog_dataset.zip/
 
 # ---- Python / editor clutter ----
 __pycache__/
@@ -29,3 +34,4 @@ venv/
 .ipynb_checkpoints/
 .DS_Store
 Thumbs.db
+
