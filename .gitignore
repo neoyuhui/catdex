@@ -5,6 +5,7 @@
 # ---- Your Catdex data (cat photos, cards, fingerprints) and its backups ----
 catdex_db/
 catdex_db_backup_*/
+.pem/
 
 # ---- Big downloads and datasets ----
 *.pt
