@@ -1,0 +1,11 @@
+# Install everything with:  python -m pip install -r requirements.txt
+gradio>=6.0
+ultralytics
+opencv-python
+numpy
+torch
+transformers
+pillow
+anthropic
+# Optional: lets the app open iPhone .HEIC photos
+pillow-heif

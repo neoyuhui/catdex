@@ -1,0 +1,31 @@
+# ---- Secrets: NEVER upload ----
+.env
+.env.*
+
+# ---- Your Catdex data (cat photos, cards, fingerprints) and its backups ----
+catdex_db/
+catdex_db_backup_*/
+
+# ---- Big downloads and datasets ----
+*.pt
+*.pth
+*.pkl
+*.zip
+cat/
+dog/
+cat_crops/
+cats_only/
+black_candidates/
+contact_sheets/
+mistakes/
+recognition_dataset/
+
+# ---- Python / editor clutter ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
