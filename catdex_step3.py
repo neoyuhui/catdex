@@ -432,6 +432,9 @@ if __name__ == "__main__":
                  f"different photos (different angles), e.g.:\n"
                  f"  python catdex_step3.py front.jpg side.jpg face.jpg")
     name = input("New cat! What's its name? ").strip() or "Mystery Cat"
+    from catdex_safety import name_problem               # the same name check the app uses
+    if name_problem(name):
+        sys.exit(name_problem(name))
     cat_id = add_new_cat(crops, name, coat, result["fingerprints"], db)
     print(f"Caught {name} ({cat_id}) with {len(crops)} photos and added it to the {coat} page!")
     try:

@@ -37,7 +37,7 @@ import catdex_data                                    # loads Steps 1-4 too
 # =============================================================================
 # 1. Settings you can tune
 # =============================================================================
-SHARE = False         # True = also make a temporary public link (handy for phones and judges)
+SHARE = True         # True = also make a temporary public link (handy for phones and judges)
 STEP_PAUSE = 0.35     # seconds to pause between scan steps, so people can read the progress lines
 RECENT_COUNT = 6      # how many "recently seen" cats to show on Home
 MAX_TRAY = catdex_data.MAX_PHOTOS          # most photos you can add before one scan
@@ -215,8 +215,11 @@ def cat_tile(cat, extra=""):
     return (f'<button class="cat-tile rarity-{cat["rarity"].lower()}" data-cat="{esc(cat["id"])}" '
             f'aria-label="Open {esc(cat["name"])}\'s profile">'
             f'<span class="tile-photo">{photo}</span>'
-            f'<span class="tile-name">{esc(cat["name"])}</span>'
+            f'<span class="tile-name">{esc(cat["name"])}{TNR_MARK if cat.get("ear_tipped") == "yes" else ""}</span>'
             f'<span class="tile-meta">{extra or "Seen " + str(cat["sightings"]) + "×"}</span></button>')
+
+
+TNR_MARK = '<span class="tnr-mark" title="Ear-tipped (sterilised)" aria-label="ear-tipped">✂︎</span>'
 
 
 def card_img(cat, css_class="card-img"):
@@ -253,7 +256,8 @@ def badge_sticker(badge, tilt=0, small=False):
 TIPS = [("🐱", "One cat at a time", "Two cats in a photo confuses the scanner."),
         ("📐", f"{NEED}+ different angles", "Front, side and face, so it can recognise them later."),
         ("☀️", "Decent light", "Blurry or very dark photos get skipped."),
-        ("📸", "Burst shots count once", "Near-identical photos only count as one.")]
+        ("📸", "Burst shots count once", "Near-identical photos only count as one."),
+        ("🐾", "Keep your distance", "Never chase, corner or pick up a cat for a photo – zoom in instead.")]
 
 
 def home_html(tips_hidden=False):
@@ -262,7 +266,10 @@ def home_html(tips_hidden=False):
              f'<p class="hello">{greeting()}! {"Ready to catch your first cat?" if not count else "Spotted a cat?"}</p>'
              f'<button class="catball catball-big is-idle" data-action="catch" aria-label="Catch a cat">'
              f'{cat_ball_svg()}</button>'
-             f'<p class="ball-hint">Tap the cat-ball to catch a cat</p></section>']
+             f'<p class="ball-hint">Tap the cat-ball to catch a cat</p>'
+             f'<p class="who-for">Catdex helps community cat caretakers recognise every neighbourhood cat '
+             f'and keep track of sightings, ear-tipping (TNR) and notes – no more relying on memory or group chats.</p>'
+             f'</section>']
 
     # Photo tips: always shown while the Catdex is empty, otherwise until dismissed
     if count == 0 or not tips_hidden:
@@ -453,10 +460,10 @@ def dex_header_html():
             f'aria-valuemax="{p["pages_total"]}"><div class="progress-fill" style="width:{pct}%"></div></div></div>')
 
 
-def dex_html(search="", sort="newest"):
-    searching = bool((search or "").strip())
+def dex_html(search="", sort="newest", needs_tnr=False):
+    searching = bool((search or "").strip()) or needs_tnr
     sections = []
-    for coat, cats in catdex_data.collection(search, sort):
+    for coat, cats in catdex_data.collection(search, sort, needs_tnr):
         if searching and not cats:
             continue                       # while searching, only show pages with matching cats
         rarity = catdex_data._rarity(coat) if coat != catdex_data.UNSURE else "Common"
@@ -468,9 +475,12 @@ def dex_html(search="", sort="newest"):
         else:
             body = f'<div class="page-empty">{SILHOUETTE}<span>Not caught yet</span></div>'
         sections.append(f'<section class="coat-page{"" if cats else " is-empty"}">{head}{body}</section>')
-    if not sections:
+    if not sections and needs_tnr and not (search or "").strip():
+        sections.append(f'<div class="panel empty-state">{SILHOUETTE}<p><b>Every cat is ear-tipped 🎉</b>'
+                        f'No cats are waiting for TNR.</p></div>')
+    elif not sections:
         sections.append(f'<div class="panel empty-state">{SILHOUETTE}<p><b>No cats called “{esc(search)}”</b>'
-                        f'Try another name.</p></div>')
+                        f'{"among the cats needing TNR. " if needs_tnr else ""}Try another name.</p></div>')
     return f'<div class="dex-pages">{"".join(sections)}</div>'
 
 
@@ -487,7 +497,8 @@ def badges_html():
 
     s = catdex_data.stats()
     tiles = "".join(f'<div class="stat"><b>{v}</b><span>{label}</span></div>' for v, label in
-                    [(s["total_cats"], "cats"), (s["total_sightings"], "sightings"), (s["total_photos"], "photos")])
+                    [(s["total_cats"], "cats"), (s["total_sightings"], "sightings"), (s["total_photos"], "photos"),
+                     (f'{s["ear_tipped_count"]}/{s["total_cats"]}', "ear-tipped")])
     highlights = ""
     rarest = s["rarest"]
     only_common = rarest is not None and rarest["stars"] == 1
@@ -509,10 +520,38 @@ def badges_html():
     parts.append(f'<section class="panel stats"><h2>Stats</h2><div class="stat-row">{tiles}</div>'
                  f'{"<div class=highlight-row>" + highlights + "</div>" if highlights else ""}'
                  f'<h3 class="bars-title">Cats per coat page</h3><div class="bars">{bars}</div></section>')
+    guard = s["safety"]
+    parts.append(f'<section class="panel safety"><h2>Safety checks</h2>'
+                 f'<p>Catdex checks every name you type and every card Claude writes. Cards that mention health, '
+                 f'injuries or sterilisation (things an AI can\'t know from a photo), rude words or AI talk are replaced '
+                 f'by a template card.</p><div class="stat-row">'
+                 f'<div class="stat"><b>{guard["names_blocked"]}</b><span>names blocked</span></div>'
+                 f'<div class="stat"><b>{guard["cards_replaced"]}</b><span>AI cards replaced</span></div></div></section>')
     return f'<div class="page badges">{"".join(parts)}</div>'
 
 
 # ---- Profile ------------------------------------------------------------------
+def tnr_chip(state):
+    """A chip saying whether the cat is ear-tipped (recorded by a caretaker, never guessed by the AI)."""
+    icon = {"yes": "✂︎", "no": "○", "unsure": "?"}[state]
+    return f'<span class="chip tnr-chip tnr-{state}">{icon} {esc(catdex_data.EAR_TIPPED[state])}</span>'
+
+
+def notes_html(cat_id):
+    """Caretaker notes for one cat, newest first, each with a delete button."""
+    p = catdex_data.profile(cat_id) if cat_id else None
+    if not p:
+        return ""
+    notes = list(enumerate(p["notes"]))[::-1]
+    if not notes:
+        return ('<p class="small-print">No notes yet. Write down anything worth remembering – where they '
+                'like to sleep, who feeds them, or something to tell a vet.</p>')
+    items = "".join(f'<li><div><span class="note-date">{catdex_data.nice_date(n["date"], with_time=True)}</span>'
+                    f'<p>{esc(n["text"])}</p></div><button class="note-del" data-action="del-note" data-index="{i}" '
+                    f'aria-label="Delete this note">×</button></li>' for i, n in notes)
+    return f'<ul class="note-list">{items}</ul>'
+
+
 def profile_html(cat_id, selecting=False, picked=()):
     """The profile page. selecting=True: the photo album is in "Select photos" mode (tap photos to
     tick them; `picked` = the ticked photos' file names), to fix a different cat that got mixed in."""
@@ -559,7 +598,7 @@ def profile_html(cat_id, selecting=False, picked=()):
     <div class="profile-info">
       <h1 class="profile-name">{esc(p["name"])}</h1>
       {f'<p class="profile-title">{esc(per["title"])}</p>' if per["title"] else ''}
-      <div class="chip-row"><span class="chip coat-chip"><i class="swatch swatch-{esc(p["coat"] or "unsure")}"></i>{esc(coat_label(p["coat"]))}</span>
+      <div class="chip-row">{tnr_chip(p["ear_tipped"])}<span class="chip coat-chip"><i class="swatch swatch-{esc(p["coat"] or "unsure")}"></i>{esc(coat_label(p["coat"]))}</span>
         <span class="chip rarity-chip rarity-{p["rarity"].lower()}">{stars(p["stars"])} {p["rarity"]}</span>{vibe}</div>
       <div class="chip-row traits">{traits}</div>
       {f'<p class="lore">{esc(per["lore"])}</p>' if per["lore"] else ''}
@@ -642,6 +681,8 @@ with gr.Blocks(title="Catdex", analytics_enabled=False) as demo:
                                     elem_id="dex-search", scale=2, min_width=180)
                 sort = gr.Radio(SORTS, value="newest", show_label=False, elem_id="dex-sort",
                                 scale=3, min_width=240)
+                needs_tnr = gr.Checkbox(label="Only cats not yet ear-tipped (TNR)", value=False,
+                                        elem_id="dex-tnr", scale=2, min_width=200)
             dex_view = gr.HTML(dex_html(), js_on_load=CLICK_JS, apply_default_css=False, elem_id="dex-view")
 
         with gr.Tab("Badges", id="badges", elem_id="tab-badges"):
@@ -658,6 +699,17 @@ with gr.Blocks(title="Catdex", analytics_enabled=False) as demo:
         with gr.Tab("Profile", id="profile", elem_id="tab-profile"):
             profile_view = gr.HTML(profile_html(None), js_on_load=CLICK_JS, apply_default_css=False,
                                    elem_id="profile-view")
+            # Caretaker corner: facts a person records (the AI never guesses these)
+            with gr.Column(elem_id="caretaker", elem_classes="panel-like") as caretaker:
+                gr.Markdown("### 🩺 Caretaker corner\nRecorded by you – Catdex's AI never guesses these.",
+                            elem_id="caretaker-head")
+                tnr_radio = gr.Radio([(label, key) for key, label in catdex_data.EAR_TIPPED.items()],
+                                     value="unsure", label="Ear-tipped (sterilised through TNR)?", elem_id="tnr-radio")
+                notes_view = gr.HTML("", js_on_load=CLICK_JS, apply_default_css=False, elem_id="notes-view")
+                with gr.Row(elem_id="note-row"):
+                    note_box = gr.Textbox(label="Add a note", placeholder="e.g. Fed at Block 123 at 7pm, eating well",
+                                          max_lines=3, max_length=catdex_data.MAX_NOTE, scale=4, elem_id="note-box")
+                    note_btn = gr.Button("Add note", scale=1, min_width=120, elem_id="note-btn")
             # Fixing a mix-up: shown while photos are being selected in the album
             with gr.Column(visible=False, elem_id="photo-tools", elem_classes="panel-like") as photo_tools:
                 tools_info = gr.Markdown("Tap photos to select them.", elem_id="tools-info")
@@ -691,10 +743,10 @@ with gr.Blocks(title="Catdex", analytics_enabled=False) as demo:
 # 6. What happens when you tap things
 #    Each function returns a dictionary {component: new value}; anything left out stays as it is.
 # =============================================================================
-def refresh_pages(search_text, sort_by, hidden):
+def refresh_pages(search_text, sort_by, hidden, only_tnr=False):
     """Redraw Home, Catdex and Badges from the database (after anything changes)."""
     return {home_view: home_html(hidden), dex_header: dex_header_html(),
-            dex_view: dex_html(search_text, sort_by), badges_view: badges_html()}
+            dex_view: dex_html(search_text, sort_by, only_tnr), badges_view: badges_html()}
 
 
 def open_profile(cat_id, origin):
@@ -702,6 +754,7 @@ def open_profile(cat_id, origin):
     cat = catdex_data.get_cat(cat_id)
     return {tabs: gr.Tabs(selected="profile"), profile_view: profile_html(cat_id), profile_id: cat_id,
             came_from: origin, rename_box: cat["name"] if cat else "", confirm_row: gr.Row(visible=False),
+            tnr_radio: cat["ear_tipped"] if cat else "unsure", notes_view: notes_html(cat_id), note_box: "",
             **photo_mode(cat_id, False, [])}
 
 
@@ -847,6 +900,10 @@ def catch_new_cat(name, info):
     before = catdex_data.unlocked_ids()
     try:
         cat_id = catdex_data.catch_new(info["crops"], info["fps"], name, info["coat"])   # Steps 3 + 4
+    except catdex_data.safety.BlockedName as e:   # a rude name or "instructions" in the name
+        gr.Warning(str(e))
+        yield new_cat_screen(info, ["Let's pick another name"])
+        return
     except ValueError:                       # not enough different photos after all
         yield {**catch_screen("idle", [], outcome_too_few(len(info["crops"]), info["dropped"])), scan: None}
         return
@@ -951,7 +1008,11 @@ def split_photos(cat_id, chosen, new_name):
 def rename_cat(cat_id, new_name):
     if not cat_id or not catdex_data.get_cat(cat_id):
         return {profile_view: gr.skip()}
-    catdex_data.rename(cat_id, new_name)
+    try:
+        catdex_data.rename(cat_id, new_name)
+    except catdex_data.safety.BlockedName as e:
+        gr.Warning(str(e))
+        return {rename_box: catdex_data.get_cat(cat_id)["name"]}
     cat = catdex_data.get_cat(cat_id)
     gr.Info(f"Renamed to {cat['name']} – card redrawn.", duration=4)
     return {**photo_mode(cat_id, False, []), rename_box: cat["name"]}
@@ -980,6 +1041,32 @@ def remove_cat(cat_id):
     return {confirm_row: gr.Row(visible=False), tabs: gr.Tabs(selected="dex"), profile_id: None}
 
 
+def set_tnr(cat_id, value):
+    """The ear-tipped choice on the profile."""
+    if not cat_id or not catdex_data.get_cat(cat_id):
+        return {profile_view: gr.skip()}
+    catdex_data.set_ear_tipped(cat_id, value)
+    gr.Info(f"Saved: {catdex_data.EAR_TIPPED[value].lower()}.", duration=3)
+    return {profile_view: profile_html(cat_id)}
+
+
+def add_care_note(cat_id, text):
+    if not cat_id or not catdex_data.get_cat(cat_id):
+        return {notes_view: gr.skip()}
+    if not catdex_data.add_note(cat_id, text):
+        gr.Warning("Type a note first.")
+        return {notes_view: gr.skip()}
+    return {notes_view: notes_html(cat_id), note_box: ""}
+
+
+def notes_click(cat_id, evt: gr.EventData):
+    """The × on a note deletes it."""
+    if evt.action == "del-note" and cat_id and str(evt.index).isdigit():
+        catdex_data.remove_note(cat_id, int(evt.index))
+        return {notes_view: notes_html(cat_id)}
+    return {notes_view: gr.skip()}
+
+
 def reset_catdex(typed):
     if (typed or "").strip() != "RESET":
         gr.Warning("Type RESET (in capitals) to confirm.")
@@ -999,10 +1086,11 @@ DB = dict(concurrency_id="catdex_db", concurrency_limit=1, show_progress="hidden
 QUIET = dict(show_progress="hidden")
 
 with demo:
-    page_inputs = [search, sort, tips_hidden]
+    page_inputs = [search, sort, tips_hidden, needs_tnr]
     page_outputs = [home_view, dex_header, dex_view, badges_view]
     profile_outputs = [tabs, profile_view, profile_id, came_from, rename_box, confirm_row,
-                       selecting, picked, photo_tools, tools_info, pics_confirm_row]
+                       selecting, picked, photo_tools, tools_info, pics_confirm_row,
+                       tnr_radio, notes_view, note_box]
     catch_outputs = [catch_top, result, name_row, after_row, picker, photos, tray, scan, name_box]
 
     demo.load(refresh_pages, page_inputs, page_outputs, **QUIET)
@@ -1028,8 +1116,9 @@ with demo:
     to_dex_btn.click(lambda: gr.Tabs(selected="dex"), None, tabs, **QUIET)
 
     # Catdex: search and sort redraw the list
-    search.change(dex_html, [search, sort], dex_view, **QUIET)
-    sort.change(dex_html, [search, sort], dex_view, **QUIET)
+    search.change(dex_html, [search, sort, needs_tnr], dex_view, **QUIET)
+    sort.change(dex_html, [search, sort, needs_tnr], dex_view, **QUIET)
+    needs_tnr.change(dex_html, [search, sort, needs_tnr], dex_view, **QUIET)
     dex_view.click(list_click("dex"), None, profile_outputs, **QUIET)
     badges_view.click(list_click("badges"), None, profile_outputs, **QUIET)
 
@@ -1041,6 +1130,11 @@ with demo:
     pics_no.click(lambda: gr.Row(visible=False), None, pics_confirm_row, **QUIET)
     pics_yes.click(remove_photos, [profile_id, picked], profile_outputs, **DB).then(
         refresh_pages, page_inputs, page_outputs, **QUIET)
+    tnr_radio.input(set_tnr, [profile_id, tnr_radio], [profile_view], **DB).then(
+        refresh_pages, page_inputs, page_outputs, **QUIET)
+    for event in (note_btn.click, note_box.submit):
+        event(add_care_note, [profile_id, note_box], [notes_view, note_box], **DB)
+    notes_view.click(notes_click, [profile_id], [notes_view], **DB)
     for event in (split_btn.click, split_name.submit):
         event(split_photos, [profile_id, picked, split_name], profile_outputs + [split_name], **DB).then(
             refresh_pages, page_inputs, page_outputs, **QUIET)

@@ -36,6 +36,7 @@ from catdex_step1 import find_cat                       # Step 1: find and crop 
 from catdex_step2 import classify_coat, COAT_NAMES      # Step 2: coat page
 import catdex_step3 as step3                            # Step 3: who is it? + the database
 import catdex_step4 as step4                            # Step 4: vibe, personality, card
+import catdex_safety as safety                          # guardrails: name and card checks
 
 # ---- Settings you can tune -------------------------------------------------
 MAX_PHOTOS = 10          # use at most this many photos per scan, so it stays quick
@@ -51,6 +52,10 @@ FRIEND_LEVELS = [        # (sightings needed, label) - checked from the top down
     (0, "Just met"),
 ]
 UNSURE = "unsure"        # coat page for cats Step 2 couldn't decide on (and old cats with no coat)
+# Ear-tipping: a small notch on the ear that shows a community cat has been sterilised (TNR).
+# Caretakers record it themselves - the AI never guesses it.
+EAR_TIPPED = {"yes": "Ear-tipped", "no": "Not ear-tipped", "unsure": "Not checked yet"}
+MAX_NOTE = 300           # longest caretaker note allowed
 
 # Handy names for the app
 MIN_ENROL_PHOTOS = step3.MIN_ENROL_PHOTOS
@@ -179,7 +184,8 @@ def catch_new(crops, fps, name, coat):
     Returns the new cat's id. Raises ValueError (with a message you can show) if there aren't
     MIN_ENROL_PHOTOS different photos."""
     crops = list(crops)
-    cat_id = step3.add_new_cat(crops, clean_name(name), coat, fps)
+    name = safety.check_name(clean_name(name), where="catch")     # raises safety.BlockedName if not allowed
+    cat_id = step3.add_new_cat(crops, name, coat, fps)
     step4.welcome_new_cat(cat_id, crops)
     return cat_id
 
@@ -253,6 +259,7 @@ def _cat_info(cat_id, cat):
         "title": (cat.get("personality") or {}).get("title", ""),
         "card_path": _card_file(cat_id, cat),
         "thumb_path": photos[0] if photos else None,
+        "ear_tipped": cat.get("ear_tipped") if cat.get("ear_tipped") in EAR_TIPPED else "unsure",
     }
 
 
@@ -271,12 +278,15 @@ def get_cat(cat_id):
     return _cat_info(cat_id, cat) if cat else None
 
 
-def list_cats(search="", sort="newest"):
-    """Every cat (optionally only names containing `search`, ignoring upper/lower case), sorted."""
+def list_cats(search="", sort="newest", needs_tnr=False):
+    """Every cat (optionally only names containing `search`, ignoring upper/lower case), sorted.
+    needs_tnr=True: only cats NOT recorded as ear-tipped (the ones caretakers may still need to sterilise)."""
     search = (search or "").strip().lower()
     infos = [_cat_info(cid, cat) for cid, cat in _read_cats().items()]
     if search:
         infos = [c for c in infos if search in c["name"].lower()]
+    if needs_tnr:
+        infos = [c for c in infos if c["ear_tipped"] != "yes"]
     return _sorted(infos, sort)
 
 
@@ -285,10 +295,10 @@ def _page_of(coat):
     return coat if coat in COAT_NAMES else UNSURE
 
 
-def collection(search="", sort="newest"):
+def collection(search="", sort="newest", needs_tnr=False):
     """The Catdex by coat page: [(coat, [CatInfo, ...]), ...] for every page in COAT_NAMES order
     (empty pages included), plus a final ("unsure", [...]) page only if some cats have no clear coat."""
-    cats = list_cats(search, sort)
+    cats = list_cats(search, sort, needs_tnr)
     pages = [(coat, [c for c in cats if c["coat"] == coat]) for coat in COAT_NAMES]
     any_unsure = any(_page_of(cat.get("coat")) == UNSURE for cat in _read_cats().values())
     if any_unsure:
@@ -366,6 +376,7 @@ def profile(cat_id):
     info["photo_paths"] = _photo_files(cat_id, cat)
     info["sighting_dates"] = _sighting_dates(cat)
     info["friendship"] = friendship(info["sightings"])
+    info["notes"] = list(cat.get("notes", []))       # caretaker notes, oldest first: [{"date", "text"}]
     return info
 
 
@@ -473,7 +484,9 @@ def stats():
             "most_sighted": most_sighted,
             "rarest": rarest,
             "coat_counts": {coat: counts.get(coat, 0) for coat in COAT_NAMES},
-            "unsure_count": sum(1 for cat in cats.values() if _page_of(cat.get("coat")) == UNSURE)}
+            "unsure_count": sum(1 for cat in cats.values() if _page_of(cat.get("coat")) == UNSURE),
+            "ear_tipped_count": sum(1 for c in infos if c["ear_tipped"] == "yes"),
+            "safety": safety.summary()}
 
 
 # =============================================================================
@@ -491,6 +504,7 @@ def _draw_card(cat_id, db=None):
 def rename(cat_id, new_name):
     """Give a cat a new name and redraw its card. The personality is kept - only the old name
     inside its text (e.g. the lore) is swapped for the new one. Returns the card path (or None)."""
+    safety.check_name(clean_name(new_name), where="rename")    # raises safety.BlockedName if not allowed
     db = step3.load_db()
     old = db["cats"][cat_id].get("name") or ""
     new = step3.rename_cat(cat_id, new_name, db)       # saves the new name
@@ -566,6 +580,7 @@ def move_photos_to_new_cat(cat_id, photo_names, new_name):
     a new Catdex entry (coat page, fingerprints, personality, card) made from those photos, which
     are then taken out of the old cat. Needs MIN_ENROL_PHOTOS different photos, like any new cat.
     Returns the new cat's id. Raises ValueError if there aren't enough different photos."""
+    new_name = safety.check_name(clean_name(new_name), where="new cat from photos")
     cat = step3.load_db()["cats"][cat_id]
     wanted = set(photo_names)
     names = [p for p in cat["photos"] if p in wanted]
@@ -580,6 +595,40 @@ def move_photos_to_new_cat(cat_id, photo_names, new_name):
     remove_photos(cat_id, names)                                                # take them out of the old cat
     step4.welcome_new_cat(new_id, crops)                                        # Step 4: vibe, personality, card
     return new_id
+
+
+# ---- Caretaker records (typed by people, never guessed by the AI) -------------------
+def set_ear_tipped(cat_id, value):
+    """Record whether the cat is ear-tipped (sterilised): "yes", "no" or "unsure"."""
+    if value not in EAR_TIPPED:
+        raise ValueError(f"ear_tipped must be one of {list(EAR_TIPPED)}")
+    db = step3.load_db()
+    db["cats"][cat_id]["ear_tipped"] = value
+    step3.save_db(db)
+
+
+def add_note(cat_id, text):
+    """Add a dated caretaker note (e.g. "limping on the left paw - told the vet"). Returns the cleaned
+    text, or "" if the note was empty. Notes are shown as plain text, so typed HTML can't do anything."""
+    text = " ".join((text or "").split())[:MAX_NOTE]
+    if not text:
+        return ""
+    db = step3.load_db()
+    db["cats"][cat_id].setdefault("notes", []).append(
+        {"date": datetime.now().isoformat(timespec="seconds"), "text": text})
+    step3.save_db(db)
+    return text
+
+
+def remove_note(cat_id, index):
+    """Delete one caretaker note (index = its position, oldest first). Returns True if one was removed."""
+    db = step3.load_db()
+    notes = db["cats"][cat_id].get("notes", [])
+    if not 0 <= index < len(notes):
+        return False
+    notes.pop(index)
+    step3.save_db(db)
+    return True
 
 
 def remove(cat_id):

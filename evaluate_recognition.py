@@ -28,7 +28,7 @@ from catdex_step3 import fingerprint, near_duplicate, MODEL_NAME, MATCH_THRESHOL
 
 # ---- Settings ---------------------------------------------------------------
 RECOG_FOLDER = "recog_data"
-SPLIT = "dev"              # "dev" while choosing the threshold, "test" ONCE at the end
+SPLIT = "test"              # "dev" while choosing the threshold, "test" ONCE at the end
 ENROL_PHOTOS = MIN_ENROL_PHOTOS   # photos used to enrol each cat - the same as the app (catdex_step3.py),
                                   # and they must be genuinely DIFFERENT photos, not near-duplicates
 SKIP_NEAR_DUPLICATES = True  # leave out sightings that are almost the same shot as an enrolment photo

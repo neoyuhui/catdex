@@ -15,7 +15,7 @@ import pandas as pd
 from catdex_step2 import classify_coat, build_prototypes, EXAMPLES, EXAMPLE_STRENGTH, USE_LABELLED_EXAMPLES
 
 # ---- Settings ---------------------------------------------------------------
-SPLIT = "dev"                # "dev" while tuning, "test" once at the end
+SPLIT = "test"                # "dev" while tuning, "test" once at the end
 CROPS_FOLDER = "cat_crops"
 LABEL_FILE = "coat_labels.csv"
 
